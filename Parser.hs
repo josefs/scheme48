@@ -3,6 +3,7 @@ module Parser where
 import Text.ParserCombinators.Parsec hiding (spaces)
 import System.Environment
 import Control.Monad
+import Expr
 
 symbol :: Parser Char
 symbol = oneOf "!#$%&|*+-/:<=>?@^_~"
@@ -17,28 +18,21 @@ spaces = skipMany1 space
 
 readExpr :: String -> String
 readExpr input = case parse parseExpr "lisp" input of
-    Left err -> "No match: " ++ show err
-    Right _ -> "Found value"
+    Left  err -> "No match: " ++ show err
+    Right exp -> "Found "     ++ showExp exp
 
 ----------------------------------------
--- S-expressions and their parser
+-- Parsing expressions
 ----------------------------------------
 
-data LispVal = Atom String
-             | List [LispVal]
-             | DottedList [LispVal] LispVal
-             | Number Integer
-             | String String
-             | Bool Bool
-
-parseString :: Parser LispVal
+parseString :: Parser LispExp
 parseString = do
                 char '"'
                 x <- many (noneOf "\"")
                 char '"'
                 return $ String x
 
-parseAtom :: Parser LispVal
+parseAtom :: Parser LispExp
 parseAtom = do 
               first <- letter <|> symbol
               rest <- many (letter <|> digit <|> symbol)
@@ -48,25 +42,25 @@ parseAtom = do
                          "#f" -> Bool False
                          _    -> Atom atom
 
-parseNumber :: Parser LispVal
+parseNumber :: Parser LispExp
 parseNumber = liftM (Number . read) $ many1 digit
 
-parseList :: Parser LispVal
+parseList :: Parser LispExp
 parseList = liftM List $ sepBy parseExpr spaces
 
-parseDottedList :: Parser LispVal
+parseDottedList :: Parser LispExp
 parseDottedList = do
     head <- endBy parseExpr spaces
     tail <- char '.' >> spaces >> parseExpr
     return $ DottedList head tail
 
-parseQuoted :: Parser LispVal
+parseQuoted :: Parser LispExp
 parseQuoted = do
     char '\''
     x <- parseExpr
     return $ List [Atom "quote", x]
 
-parseExpr :: Parser LispVal
+parseExpr :: Parser LispExp
 parseExpr = parseAtom
          <|> parseString
          <|> parseNumber
