@@ -29,11 +29,11 @@ parseString = do
                 return $ String x
 
 parseAtom :: Parser LispExp
-parseAtom = do 
+parseAtom = do
               first <- letter <|> symbol
               rest <- many (letter <|> digit <|> symbol)
               let atom = first:rest
-              return $ case atom of 
+              return $ case atom of
                          "#t" -> Bool True
                          "#f" -> Bool False
                          _    -> Atom atom
