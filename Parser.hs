@@ -3,6 +3,7 @@ module Parser where
 import Text.ParserCombinators.Parsec hiding (spaces)
 import System.Environment
 import Control.Monad
+import Control.Monad.Error
 import Expr
 import Eval
 
@@ -11,16 +12,17 @@ symbol = oneOf "!#$%&|*+-/:<=>?@^_~"
 
 main :: IO ()
 main = do 
-         (expr:_) <- getArgs
-         print $ eval $ readExpr expr
+  args <- getArgs
+  evaled <- return $ liftM show $ readExpr (args !! 0) >>= eval
+  putStrLn $ extractValue $ trapError evaled
 
 spaces :: Parser ()
 spaces = skipMany1 space
 
-readExpr :: String -> LispExp
+readExpr :: String -> ThrowsError LispExp
 readExpr input = case parse parseExpr "lisp" input of
-    Left  err -> String $ "No match: " ++ show err
-    Right exp -> exp
+    Left  err -> throwError $ Parser err
+    Right exp -> return exp
 
 ----------------------------------------
 -- Parsing expressions
