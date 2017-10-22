@@ -1,7 +1,6 @@
 module Parser where
 
 import Text.ParserCombinators.Parsec hiding (spaces)
-import System.Environment
 import Control.Monad
 import Control.Monad.Error
 import Expr
@@ -9,12 +8,6 @@ import Eval
 
 symbol :: Parser Char
 symbol = oneOf "!#$%&|*+-/:<=>?@^_~"
-
-main :: IO ()
-main = do 
-  args <- getArgs
-  evaled <- return $ liftM show $ readExpr (args !! 0) >>= eval
-  putStrLn $ extractValue $ trapError evaled
 
 spaces :: Parser ()
 spaces = skipMany1 space
