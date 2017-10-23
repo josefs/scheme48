@@ -1,11 +1,53 @@
 {-# LANGUAGE ExistentialQuantification #-}
 module Eval where
 
-import Expr
 import Control.Monad.Except
 import Data.Functor.Identity
 import Text.ParserCombinators.Parsec (ParseError)
 import Data.IORef
+
+----------------------------------------
+-- Expr
+----------------------------------------
+
+data LispExp
+  = Atom String
+  | List [LispExp]
+  | DottedList [LispExp] LispExp
+  | Number Integer
+  | String String
+  | Bool Bool
+    -- Primitive functions ought to be represented by their name
+    -- and not their semantics. Right now, the syntax depends on the
+    -- semantics which is a bit of a mess.
+  | PrimitiveFunc ([LispExp] -> ThrowsError LispExp)
+    -- This representation of functions has a similar problem.
+    -- It represent values rather than syntax, so it's a bit of
+    -- a mess.
+  | Func { params :: [String], vararg :: Maybe String,
+           body   :: [LispExp], closure :: Env }
+
+showExp :: LispExp -> String
+showExp (String contents) = "\"" ++ contents ++ "\""
+showExp (Atom name) = name
+showExp (Number contents) = show contents
+showExp (Bool True) = "#t"
+showExp (Bool False) = "#f"
+showExp (List contents) = "(" ++ unwordsList contents ++ ")"
+showExp (DottedList head tail) = "(" ++ unwordsList head ++ " . " ++
+                                        showExp tail ++ ")"
+showExp (PrimitiveFunc _) = "<primitive>"
+showExp (Func {params = args, vararg = varargs, body = body, closure = env}) =
+   "(lambda (" ++ unwords (map show args) ++
+      (case varargs of
+         Nothing -> ""
+         Just arg -> " . " ++ arg) ++ ") ...)"
+
+unwordsList :: [LispExp] -> String
+unwordsList = unwords . map showExp
+
+instance Show LispExp where
+  show = showExp
 
 ----------------------------------------
 -- Environment
@@ -50,6 +92,10 @@ bindVars envRef bindings = readIORef envRef >>= extendEnv bindings >>= newIORef
            addBinding (var, value) = do ref <- newIORef value
                                         return (var, ref)
 
+primitiveBindings :: IO Env
+primitiveBindings = nullEnv >>= (flip bindVars $ map makePrimitiveFunc primitives)
+     where makePrimitiveFunc (var, func) = (var, PrimitiveFunc func)
+
 ----------------------------------------
 -- Evaluator
 ----------------------------------------
@@ -70,12 +116,47 @@ eval env (List [Atom "set!", Atom var, form]) =
      eval env form >>= setVar env var
 eval env (List [Atom "define", Atom var, form]) =
      eval env form >>= defineVar env var
-eval env (List (Atom func : args)) = liftThrows . apply func =<< mapM (eval env) args
+eval env (List (Atom "define" : List (Atom var : params) : body)) =
+     makeNormalFunc env params body >>= defineVar env var
+eval env (List (Atom "define" : DottedList (Atom var : params) varargs : body)) =
+     makeVarArgs varargs env params body >>= defineVar env var
+eval env (List (Atom "lambda" : List params : body)) =
+     makeNormalFunc env params body
+eval env (List (Atom "lambda" : DottedList params varargs : body)) =
+     makeVarArgs varargs env params body
+eval env (List (Atom "lambda" : varargs@(Atom _) : body)) =
+     makeVarArgs varargs env [] body
+eval env (List (function : args)) = do
+     func    <- eval env function
+     argVals <- mapM (eval env) args
+     apply func argVals
 eval env badform = throwError $ BadSpecialForm "Unrecognized special form" badform
 
-apply :: String -> [LispExp] -> ThrowsError LispExp
+apply :: LispExp -> [LispExp] -> IOThrowsError LispExp
+apply (PrimitiveFunc func) args = liftThrows $ func args
+apply (Func params varargs body closure) args
+      | length params /= length args && varargs == Nothing =
+          throwError $ NumArgs (length params) args
+      | otherwise =
+         (liftIO $ bindVars closure $ zip params args) >>=
+         bindVarArgs varargs >>=
+         evalBody
+  where remainingArgs = drop (length params) args
+        evalBody env = liftM last $ mapM (eval env) body
+        bindVarArgs arg env =
+          case arg of
+            Just argName ->
+              liftIO $ bindVars env [(argName, List $ remainingArgs)]
+            Nothing -> return env
+{-
 apply func args =
   maybe (throwError $ NotFunction "Unrecognized primitive function args" func) ($ args) $ lookup func primitives
+-}
+
+makeFunc varargs env params body =
+  return $ Func (map showExp params) varargs body env
+makeNormalFunc = makeFunc Nothing
+makeVarArgs = makeFunc . Just . showExp
 
 primitives :: [(String, [LispExp] -> ThrowsError LispExp)]
 primitives = [("+", numericBinop (+)),
@@ -207,7 +288,7 @@ equal badArgList = throwError $ NumArgs 2 badArgList
 -- Error handling
 ----------------------------------------
 
-data LispError = NumArgs Integer [LispExp]
+data LispError = NumArgs Int [LispExp]
                | TypeMismatch String LispExp
                | Parser ParseError
                | BadSpecialForm String LispExp

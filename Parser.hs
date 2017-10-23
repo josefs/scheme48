@@ -3,7 +3,6 @@ module Parser where
 import Text.ParserCombinators.Parsec hiding (spaces)
 import Control.Monad
 import Control.Monad.Except
-import Expr
 import Eval
 
 symbol :: Parser Char
