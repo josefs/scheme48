@@ -1,17 +1,21 @@
 module Main where
 
-import Parser
 import System.IO
 import System.Environment
 import Control.Monad
 import Eval
 
+{-
 main :: IO ()
 main = do args <- getArgs
           case args of
             []    -> runRepl
             [arg] -> runOne arg
             _     -> putStrLn "Program takes only 0 or 1 argument"
+-}
+main :: IO ()
+main = do args <- getArgs
+          if null args then runRepl else runOne $ args
 
 flushStr :: String -> IO ()
 flushStr str = putStr str >> hFlush stdout
@@ -25,8 +29,15 @@ evalAndPrint env expr =  evalString env expr >>= putStrLn
 evalString :: Env -> String -> IO String
 evalString env expr = runIOThrows $ liftM show $ (liftThrows $ readExpr expr) >>= eval env
 
+{-
 runOne :: String -> IO ()
 runOne expr = primitiveBindings >>= flip evalAndPrint expr
+-}
+runOne :: [String] -> IO ()
+runOne args = do
+    env <- primitiveBindings >>= flip bindVars [("args", List $ map String $ drop 1 args)] 
+    (runIOThrows $ liftM show $ eval env (List [Atom "load", String (args !! 0)])) 
+        >>= hPutStrLn stderr
 
 runRepl :: IO ()
 runRepl = primitiveBindings >>=

@@ -5,6 +5,8 @@ import Control.Monad.Except
 import Data.Functor.Identity
 import Text.ParserCombinators.Parsec (ParseError)
 import Data.IORef
+import System.IO
+import Text.ParserCombinators.Parsec hiding (spaces)
 
 ----------------------------------------
 -- Expr
@@ -26,6 +28,8 @@ data LispExp
     -- a mess.
   | Func { params :: [String], vararg :: Maybe String,
            body   :: [LispExp], closure :: Env }
+  | IOFunc ([LispExp] -> IOThrowsError LispExp)
+  | Port Handle
 
 showExp :: LispExp -> String
 showExp (String contents) = "\"" ++ contents ++ "\""
@@ -42,6 +46,8 @@ showExp (Func {params = args, vararg = varargs, body = body, closure = env}) =
       (case varargs of
          Nothing -> ""
          Just arg -> " . " ++ arg) ++ ") ...)"
+showExp (Port _)   = "<IO port>"
+showExp (IOFunc _) = "<IO primitive>"
 
 unwordsList :: [LispExp] -> String
 unwordsList = unwords . map showExp
@@ -93,8 +99,10 @@ bindVars envRef bindings = readIORef envRef >>= extendEnv bindings >>= newIORef
                                         return (var, ref)
 
 primitiveBindings :: IO Env
-primitiveBindings = nullEnv >>= (flip bindVars $ map makePrimitiveFunc primitives)
-     where makePrimitiveFunc (var, func) = (var, PrimitiveFunc func)
+primitiveBindings = nullEnv >>=
+  (flip bindVars $ map (makeFunc IOFunc) ioPrimitives
+                ++ map (makeFunc PrimitiveFunc) primitives)
+  where makeFunc constructor (var, func) = (var, constructor func)
 
 ----------------------------------------
 -- Evaluator
@@ -126,6 +134,8 @@ eval env (List (Atom "lambda" : DottedList params varargs : body)) =
      makeVarArgs varargs env params body
 eval env (List (Atom "lambda" : varargs@(Atom _) : body)) =
      makeVarArgs varargs env [] body
+eval env (List [Atom "load", String filename]) = 
+     load filename >>= liftM last . mapM (eval env)
 eval env (List (function : args)) = do
      func    <- eval env function
      argVals <- mapM (eval env) args
@@ -148,10 +158,15 @@ apply (Func params varargs body closure) args
             Just argName ->
               liftIO $ bindVars env [(argName, List $ remainingArgs)]
             Nothing -> return env
+apply (IOFunc func) args = func args
 {-
 apply func args =
   maybe (throwError $ NotFunction "Unrecognized primitive function args" func) ($ args) $ lookup func primitives
 -}
+
+----------------------------------------
+-- Primitives
+----------------------------------------
 
 makeFunc varargs env params body =
   return $ Func (map showExp params) varargs body env
@@ -283,6 +298,116 @@ equal [arg1, arg2] = do
       eqvEquals <- eqv [arg1, arg2]
       return $ Bool $ (primitiveEquals || let (Bool x) = eqvEquals in x)
 equal badArgList = throwError $ NumArgs 2 badArgList
+
+ioPrimitives :: [(String, [LispExp] -> IOThrowsError LispExp)]
+ioPrimitives = [("apply", applyProc),
+                ("open-input-file", makePort ReadMode),
+                ("open-output-file", makePort WriteMode),
+                ("close-input-port", closePort),
+                ("close-output-port", closePort),
+                ("read", readProc),
+                ("write", writeProc),
+                ("read-contents", readContents),
+                ("read-all", readAll)]
+
+applyProc :: [LispExp] -> IOThrowsError LispExp
+applyProc [func, List args] = apply func args
+applyProc (func : args)     = apply func args
+
+makePort :: IOMode -> [LispExp] -> IOThrowsError LispExp
+makePort mode [String filename] =
+  liftM Port $ liftIO $ openFile filename mode
+
+closePort :: [LispExp] -> IOThrowsError LispExp
+closePort [Port port] = liftIO $ hClose port >> (return $ Bool True)
+closePort _           = return $ Bool False
+
+readProc :: [LispExp] -> IOThrowsError LispExp
+readProc []          = readProc [Port stdin]
+readProc [Port port] = liftIO (hGetLine port) >>= liftThrows . readExpr
+
+writeProc :: [LispExp] -> IOThrowsError LispExp
+writeProc [obj]            = writeProc [obj, Port stdout]
+writeProc [obj, Port port] = liftIO $ hPrint port obj >>
+                                     (return $ Bool True)
+
+readContents :: [LispExp] -> IOThrowsError LispExp
+readContents [String filename] =
+  liftM String $ liftIO $ readFile filename
+
+load :: String -> IOThrowsError [LispExp]
+load filename = liftIO (readFile filename) >>=
+                liftThrows . readExprList
+
+readAll :: [LispExp] -> IOThrowsError LispExp
+readAll [String filename] = liftM List $ load filename
+
+----------------------------------------
+-- Parsing
+----------------------------------------
+
+symbol :: Parser Char
+symbol = oneOf "!#$%&|*+-/:<=>?@^_~"
+
+spaces :: Parser ()
+spaces = skipMany1 space
+
+readOrThrow :: Parser a -> String -> ThrowsError a
+readOrThrow parser input = case parse parser "lisp" input of
+    Left  err -> throwError $ Parser err
+    Right exp -> return exp
+
+readExpr :: String -> ThrowsError LispExp
+readExpr = readOrThrow parseExpr
+readExprList :: String -> ThrowsError [LispExp]
+readExprList = readOrThrow (endBy parseExpr spaces)
+
+-- Parsing expressions
+
+parseString :: Parser LispExp
+parseString = do
+                char '"'
+                x <- many (noneOf "\"")
+                char '"'
+                return $ String x
+
+parseAtom :: Parser LispExp
+parseAtom = do
+              first <- letter <|> symbol
+              rest <- many (letter <|> digit <|> symbol)
+              let atom = first:rest
+              return $ case atom of
+                         "#t" -> Bool True
+                         "#f" -> Bool False
+                         _    -> Atom atom
+
+parseNumber :: Parser LispExp
+parseNumber = liftM (Number . read) $ many1 digit
+
+parseList :: Parser LispExp
+parseList = liftM List $ sepBy parseExpr spaces
+
+parseDottedList :: Parser LispExp
+parseDottedList = do
+    head <- endBy parseExpr spaces
+    tail <- char '.' >> spaces >> parseExpr
+    return $ DottedList head tail
+
+parseQuoted :: Parser LispExp
+parseQuoted = do
+    char '\''
+    x <- parseExpr
+    return $ List [Atom "quote", x]
+
+parseExpr :: Parser LispExp
+parseExpr = parseAtom
+         <|> parseString
+         <|> parseNumber
+         <|> parseQuoted
+         <|> do char '('
+                x <- try parseList <|> parseDottedList
+                char ')'
+                return x
 
 ----------------------------------------
 -- Error handling

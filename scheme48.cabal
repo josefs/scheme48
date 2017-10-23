@@ -17,7 +17,7 @@ cabal-version:       >=1.10
 
 executable scheme48
   main-is:             Main.hs
-  other-modules:       Eval, Parser
+  other-modules:       Eval
   -- other-extensions:
   build-depends:       base >=4.9 && <4.10, parsec, mtl
   -- hs-source-dirs:

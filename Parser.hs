@@ -11,10 +11,15 @@ symbol = oneOf "!#$%&|*+-/:<=>?@^_~"
 spaces :: Parser ()
 spaces = skipMany1 space
 
-readExpr :: String -> ThrowsError LispExp
-readExpr input = case parse parseExpr "lisp" input of
+readOrThrow :: Parser a -> String -> ThrowsError a
+readOrThrow parser input = case parse parser "lisp" input of
     Left  err -> throwError $ Parser err
     Right exp -> return exp
+
+readExpr :: String -> ThrowsError LispExp
+readExpr = readOrThrow parseExpr
+readExprList :: String -> ThrowsError [LispExp]
+readExprList = readOrThrow (endBy parseExpr spaces)
 
 ----------------------------------------
 -- Parsing expressions
