@@ -120,6 +120,7 @@ eval env (List [Atom "if", pred, conseq, alt]) =
           Bool True  -> eval env conseq
           Bool False -> eval env alt
           otherwise  -> throwError $ TypeMismatch "bool" result
+eval env (List ((Atom "cond") : alts)) = cond env alts
 eval env (List [Atom "set!", Atom var, form]) =
      eval env form >>= setVar env var
 eval env (List [Atom "define", Atom var, form]) =
@@ -163,6 +164,17 @@ apply (IOFunc func) args = func args
 apply func args =
   maybe (throwError $ NotFunction "Unrecognized primitive function args" func) ($ args) $ lookup func primitives
 -}
+
+cond :: Env -> [LispExp] -> IOThrowsError LispExp
+cond env ((List (Atom "else" : value : [])) : []) = eval env value
+cond env ((List (condition : value : [])) : alts) = do
+    result <- eval env condition
+    boolResult <- liftThrows $ unpackBool result
+    if boolResult then eval env value
+                  else cond env alts
+cond _ ((List a) : _) = throwError $ NumArgs 2 a
+cond _ (a : _) = throwError $ NumArgs 2 [a]
+cond _ _ = throwError $ Default "Not viable alternative in cond"
 
 ----------------------------------------
 -- Primitives
