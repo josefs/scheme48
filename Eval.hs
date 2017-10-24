@@ -287,16 +287,21 @@ eqv [(String arg1), (String arg2)] = return $ Bool $ arg1 == arg2
 eqv [(Atom arg1), (Atom arg2)]     = return $ Bool $ arg1 == arg2
 eqv [(DottedList xs x), (DottedList ys y)] =
   eqv [List $ xs ++ [x], List $ ys ++ [y]]
-eqv [(List arg1), (List arg2)]     = return $ Bool $
-  (length arg1 == length arg2) &&
-  (all eqvPair $ zip arg1 arg2)
-     where eqvPair (x1, x2) =
-             -- FIXME : I need to do something better here.
-             case eqv [x1, x2] of
-               ExceptT (Identity (Left err)) -> False
-               ExceptT (Identity (Right (Bool val))) -> val
+eqv [l1@(List arg1), l2@(List arg2)] = eqvList eqv [l1, l2]
 eqv [_, _]     = return $ Bool False
 eqv badArgList = throwError $ NumArgs 2 badArgList
+
+eqvList :: ([LispExp] -> ThrowsError LispExp)
+        -> [LispExp] -> ThrowsError LispExp
+eqvList eqvFunc [(List arg1), (List arg2)] =
+    return $ Bool $ (length arg1 == length arg2) && 
+    (all eqvPair $ zip arg1 arg2)
+  where eqvPair (x1, x2) =
+          -- FIXME : I need to do something better here.
+          case eqvFunc [x1, x2] of
+            ExceptT (Identity (Left err))         -> False
+            ExceptT (Identity (Right (Bool val))) -> val
+
 
 data Unpacker = forall a. Eq a => AnyUnpacker (LispExp -> ThrowsError a)
 
