@@ -211,6 +211,8 @@ primitives = [("+", numericBinop (+)),
               ("string>?", strBoolBinop (>)),
               ("string<=?", strBoolBinop (<=)),
               ("string>=?", strBoolBinop (>=)),
+              ("string-length", stringLen),
+              ("string-ref", stringRef),
               ("car", car),
               ("cdr", cdr),
               ("cons", cons),
@@ -240,6 +242,21 @@ boolp   _          = Bool False
 listp   (List _)   = Bool True
 listp   (DottedList _ _) = Bool True
 listp   _          = Bool False
+
+stringLen :: [LispExp] -> ThrowsError LispExp
+stringLen [(String s)] = return $ Number $ fromIntegral $ length s
+stringLen [notString]  = throwError $ TypeMismatch "string" notString
+stringLen badArgList   = throwError $ NumArgs 1 badArgList
+
+stringRef :: [LispExp] -> ThrowsError LispExp
+stringRef [(String s), (Number k)]
+    | length s < k' + 1 = throwError $ Default "Out of bound error"
+    | otherwise         = return $ String $ [s !! k']
+    where k' = fromIntegral k
+stringRef [(String s), notNum] = throwError $ TypeMismatch "number" notNum
+stringRef [notString, _]       = throwError $ TypeMismatch "string" notString
+stringRef badArgList           = throwError $ NumArgs 2 badArgList
+
 
 boolBinop :: (LispExp -> ThrowsError a) -> (a -> a -> Bool) ->
              [LispExp] -> ThrowsError LispExp

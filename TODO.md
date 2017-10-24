@@ -15,6 +15,4 @@ Excercises
 - [x] 1
 - [x] 2
 - [x] 3 -- I've not yet implemented "case" though.
-- [ ] 4
-- [ ] 5
-
+- [x] 4
