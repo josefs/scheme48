@@ -181,6 +181,11 @@ primitives = [("+", numericBinop (+)),
               ("mod", numericBinop mod),
               ("quotient", numericBinop quot),
               ("remainder", numericBinop rem),
+              ("symbol?" , unaryOp symbolp),
+              ("string?" , unaryOp stringp),
+              ("number?" , unaryOp numberp),
+              ("bool?", unaryOp boolp),
+              ("list?" , unaryOp listp),
               ("=", numBoolBinop (==)),
               ("<", numBoolBinop (<)),
               (">", numBoolBinop (>)),
@@ -207,6 +212,22 @@ numericBinop op []     = throwError $ NumArgs 2 []
 numericBinop op s@[_]  = throwError $ NumArgs 2 s
 numericBinop op params = return . Number . foldl1 op
                      =<< mapM unpackNum params
+
+unaryOp :: Monad m => (LispExp -> LispExp) -> [LispExp] -> m LispExp
+unaryOp f [v] = return $ f v
+
+symbolp, numberp, stringp, boolp, listp :: LispExp -> LispExp
+symbolp (Atom _)   = Bool True
+symbolp _          = Bool False
+numberp (Number _) = Bool True
+numberp _          = Bool False
+stringp (String _) = Bool True
+stringp _          = Bool False
+boolp   (Bool _)   = Bool True
+boolp   _          = Bool False
+listp   (List _)   = Bool True
+listp   (DottedList _ _) = Bool True
+listp   _          = Bool False
 
 boolBinop :: (LispExp -> ThrowsError a) -> (a -> a -> Bool) ->
              [LispExp] -> ThrowsError LispExp

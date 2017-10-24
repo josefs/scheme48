@@ -4,9 +4,9 @@
 
 Excercises
 
-- [ ] 1
-- [ ] 2
-- [ ] 3
+- [x] 1
+- [x] 2
+- [ ] 3 -- Not going to do that one. Symbols and string are different
 
 ## Evaluation, Part 2
 
